@@ -1,0 +1,15 @@
+services:
+  app:
+    build: .
+    ports:
+      - "127.0.0.1:4477:4477"
+    volumes:
+      - ./:/app
+      - dashboard_node_modules:/app/node_modules
+    environment:
+      GITHUB_TOKEN: ${GITHUB_TOKEN}
+      HOSTNAME: 0.0.0.0
+      WATCHPACK_POLLING: "true"
+
+volumes:
+  dashboard_node_modules:

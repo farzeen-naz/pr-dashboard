@@ -1,0 +1,21 @@
+#!/bin/sh
+# Resolve GITHUB_TOKEN from the host's `gh` auth, then start the dashboard.
+# Pass any extra args through to `docker compose up` (e.g. `-d`, `--build`).
+set -e
+
+if [ -z "$GITHUB_TOKEN" ]; then
+  GH_BIN=$(command -v gh || echo /opt/homebrew/bin/gh)
+  if [ ! -x "$GH_BIN" ]; then
+    echo "error: gh CLI not found; install with 'brew install gh' or set GITHUB_TOKEN" >&2
+    exit 1
+  fi
+  GITHUB_TOKEN=$("$GH_BIN" auth token 2>/dev/null || true)
+  if [ -z "$GITHUB_TOKEN" ]; then
+    echo "error: \`gh auth token\` returned empty; run 'gh auth login'" >&2
+    exit 1
+  fi
+  export GITHUB_TOKEN
+fi
+
+cd "$(dirname "$0")"
+exec docker compose up "$@"
