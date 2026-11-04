@@ -82,4 +82,8 @@ export type DashboardResponse = {
   fetchedAt: number;
   sections: Record<SectionKey, DashboardPr[]>;
   changedCount: number;
+  newCounts: {
+    openMine: number;
+    merged: number;
+  };
 };

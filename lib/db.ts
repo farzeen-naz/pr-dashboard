@@ -32,6 +32,11 @@ function getDb(): Database.Database {
       value TEXT NOT NULL
     );
   `);
+  // Migration: add `section` column to pr_checkpoint if it doesn't exist yet.
+  const cols = db.pragma("table_info(pr_checkpoint)") as Array<{ name: string }>;
+  if (!cols.some((c) => c.name === "section")) {
+    db.exec("ALTER TABLE pr_checkpoint ADD COLUMN section TEXT");
+  }
   dbInstance = db;
   return db;
 }
@@ -88,13 +93,16 @@ export function upsertSeen(args: {
   }
 }
 
-export function getAllCheckpoints(): Map<string, string> {
+export type CheckpointEntry = { updatedAt: string; section: string | null };
+
+export function getAllCheckpoints(): Map<string, CheckpointEntry> {
   const db = getDb();
-  const rows = db.prepare("SELECT pr_id, updated_at FROM pr_checkpoint").all() as Array<{
-    pr_id: string;
-    updated_at: string;
-  }>;
-  return new Map(rows.map((r) => [r.pr_id, r.updated_at]));
+  const rows = db
+    .prepare("SELECT pr_id, updated_at, section FROM pr_checkpoint")
+    .all() as Array<{ pr_id: string; updated_at: string; section: string | null }>;
+  return new Map(
+    rows.map((r) => [r.pr_id, { updatedAt: r.updated_at, section: r.section }]),
+  );
 }
 
 export function getMeta(key: string): string | null {
@@ -114,16 +122,20 @@ export function setMeta(key: string, value: string): void {
 }
 
 // Replace the entire checkpoint with the supplied snapshot, in one transaction.
-export function replaceCheckpoint(snapshot: Array<{ id: string; updatedAt: string }>): void {
+export function replaceCheckpoint(
+  snapshot: Array<{ id: string; updatedAt: string; section: string }>,
+): void {
   const db = getDb();
   const now = Date.now();
-  const tx = db.transaction((items: Array<{ id: string; updatedAt: string }>) => {
-    db.prepare("DELETE FROM pr_checkpoint").run();
-    const ins = db.prepare(
-      "INSERT INTO pr_checkpoint (pr_id, updated_at, recorded_at) VALUES (?, ?, ?)",
-    );
-    for (const { id, updatedAt } of items) ins.run(id, updatedAt, now);
-  });
+  const tx = db.transaction(
+    (items: Array<{ id: string; updatedAt: string; section: string }>) => {
+      db.prepare("DELETE FROM pr_checkpoint").run();
+      const ins = db.prepare(
+        "INSERT INTO pr_checkpoint (pr_id, updated_at, recorded_at, section) VALUES (?, ?, ?, ?)",
+      );
+      for (const { id, updatedAt, section } of items) ins.run(id, updatedAt, now, section);
+    },
+  );
   tx(snapshot);
   setMeta("checkpoint_initialized", "1");
 }

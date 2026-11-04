@@ -13,7 +13,7 @@ import type {
 const JIRA_BASE = "https://optimizely-ext.atlassian.net/browse";
 const jiraUrl = (ticket: string) => `${JIRA_BASE}/${ticket}`;
 
-const PILL_BASE = "text-[10px] px-1.5 py-0.5 rounded shrink-0";
+const PILL_BASE = "text-[11px] px-2 py-0.5 rounded-full font-medium shrink-0";
 
 const REVIEW_STATE_CLS: Record<ReviewState, string> = {
   APPROVED: "bg-green-100 text-green-700",
@@ -58,7 +58,29 @@ export default function Page() {
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
   const [view, setView] = useState<ViewMode>("section");
-  const [awaitingTab, setAwaitingTab] = useState<"individual" | "team">("individual");
+  const [awaitingTab, setAwaitingTab] = useState<AwaitingTab>("individual");
+  const [folded, setFolded] = useState<Set<SectionKey>>(() => {
+    if (typeof window === "undefined") return new Set(["merged"]);
+    try {
+      const raw = localStorage.getItem("dashboard:folded");
+      return raw ? new Set(JSON.parse(raw) as SectionKey[]) : new Set(["merged"]);
+    } catch {
+      return new Set(["merged"]);
+    }
+  });
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem("dashboard:folded", JSON.stringify([...folded]));
+    }
+  }, [folded]);
+  const toggleFold = useCallback((key: SectionKey) => {
+    setFolded((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -176,13 +198,13 @@ export default function Page() {
   }, [filteredSections]);
 
   return (
-    <div className="min-h-screen px-6 py-5 max-w-6xl mx-auto">
-      <header className="flex flex-wrap items-center gap-3 mb-6">
-        <h1 className="text-lg font-semibold">PR Dashboard</h1>
+    <div className="min-h-screen px-8 py-8 max-w-7xl mx-auto">
+      <header className="flex flex-wrap items-center gap-4 mb-8">
+        <h1 className="text-xl font-semibold text-gh-fg">PR Dashboard</h1>
         {data?.viewer && (
-          <span className="text-xs text-zinc-500">@{data.viewer}</span>
+          <span className="text-xs text-gh-fg-muted">@{data.viewer}</span>
         )}
-        <span className="text-xs text-zinc-500">
+        <span className="text-xs text-gh-fg-muted">
           {data
             ? `fetched ${new Date(data.fetchedAt).toLocaleTimeString([], {
                 hour: "2-digit",
@@ -192,7 +214,7 @@ export default function Page() {
             : "—"}
         </span>
         {data && data.changedCount > 0 && (
-          <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">
+          <span className="text-[11px] px-2 py-0.5 rounded-full font-medium bg-blue-100 text-blue-700">
             {data.changedCount} new changes since last fetch
           </span>
         )}
@@ -202,29 +224,29 @@ export default function Page() {
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="search repo · title · JIRA-123"
-          className="px-2 py-1 text-sm rounded border border-zinc-300 bg-transparent w-64"
+          className="px-3 py-1.5 text-sm rounded-lg bg-gh-surface border border-gh-border shadow-sm ring-1 ring-gh-border focus:ring-blue-400 focus:outline-none w-64 transition-shadow"
         />
         <ViewToggle value={view} onChange={setView} />
         <button
           onClick={() => void refresh()}
           disabled={loading}
-          className="px-3 py-1 text-sm rounded border border-zinc-300 hover:bg-zinc-100 disabled:opacity-50 inline-flex items-center gap-1.5"
+          className="px-3 py-1.5 text-sm rounded-lg border border-gh-border bg-gh-surface hover:bg-gh-canvas disabled:opacity-50 inline-flex items-center gap-1.5 shadow-sm transition-colors"
         >
           {loading && (
-            <span className="inline-block w-3 h-3 border-2 border-zinc-400 border-t-transparent rounded-full animate-spin" />
+            <span className="inline-block w-3 h-3 border-2 border-gh-fg-muted border-t-transparent rounded-full animate-spin" />
           )}
           refresh
         </button>
       </header>
 
       {error && (
-        <div className="mb-4 p-3 rounded border border-red-400 text-red-600 text-sm">
+        <div className="mb-6 p-4 rounded-lg border border-red-300 bg-red-50 text-red-700 text-sm">
           {error}
         </div>
       )}
 
       {!data && !error && (
-        <div className="text-sm text-zinc-500">loading…</div>
+        <div className="text-sm text-gh-fg-muted">loading…</div>
       )}
 
       {data && filteredSections && view === "section" && (
@@ -242,12 +264,22 @@ export default function Page() {
                       ),
                     }
                   : { prs: filteredSections[key] };
+            const newCount =
+              key === "openMine"
+                ? data.newCounts.openMine
+                : key === "merged"
+                  ? data.newCounts.merged
+                  : 0;
             return (
               <Section
                 key={key}
                 title={SECTION_TITLES[key]}
                 viewer={data.viewer}
                 onOpen={handleOpen}
+                folded={folded.has(key)}
+                onToggleFold={() => toggleFold(key)}
+                showAuthor={isAwaiting}
+                newCount={newCount}
                 {...sectionProps}
                 headerExtra={
                   isAwaiting ? (
@@ -304,15 +336,15 @@ function ViewToggle({
   onChange: (v: ViewMode) => void;
 }) {
   return (
-    <div className="inline-flex text-xs rounded border border-zinc-300 overflow-hidden">
+    <div className="inline-flex text-xs rounded-lg border border-gh-border overflow-hidden bg-gh-surface shadow-sm">
       {(["section", "jira"] as const).map((mode) => (
         <button
           key={mode}
           onClick={() => onChange(mode)}
-          className={`px-2 py-1 ${
+          className={`px-3 py-1.5 transition-colors ${
             value === mode
-              ? "bg-zinc-200"
-              : "hover:bg-zinc-100"
+              ? "bg-gh-canvas font-medium text-gh-fg"
+              : "hover:bg-gh-canvas text-gh-fg-muted"
           }`}
         >
           {mode === "section" ? "by section" : "by jira"}
@@ -331,6 +363,10 @@ function Section({
   viewer,
   onOpen,
   headerExtra = null,
+  folded = false,
+  onToggleFold,
+  showAuthor = false,
+  newCount = 0,
 }: {
   title: React.ReactNode;
   prs?: DashboardPr[];
@@ -338,31 +374,55 @@ function Section({
   viewer: string;
   onOpen: (pr: DashboardPr, viewer: string) => void;
   headerExtra?: React.ReactNode;
+  folded?: boolean;
+  onToggleFold?: () => void;
+  showAuthor?: boolean;
+  newCount?: number;
 }) {
   const totalCount = groups
     ? groups.reduce((n, g) => n + g.prs.length, 0)
     : (prs?.length ?? 0);
   return (
-    <section className="rounded-lg border border-zinc-200">
-      <div className="flex items-center justify-between px-4 py-2 border-b border-zinc-200">
-        <h2 className="text-sm font-medium">{title}</h2>
-        <div className="flex items-center gap-3">
+    <section className="rounded-xl border border-gh-border bg-gh-surface shadow-sm">
+      <div
+        className={`flex items-center justify-between px-5 py-3 ${
+          folded ? "" : "border-b border-gh-border"
+        } ${onToggleFold ? "cursor-pointer hover:bg-gh-canvas transition-colors" : ""}`}
+        onClick={onToggleFold}
+      >
+        <h2 className="text-sm font-semibold text-gh-fg flex items-center gap-2">
+          {onToggleFold && (
+            <span className="text-gh-fg-muted text-xs w-3 inline-block">
+              {folded ? "▸" : "▾"}
+            </span>
+          )}
+          {title}
+          {newCount > 0 && (
+            <span
+              className="text-[11px] px-2 py-0.5 rounded-full font-medium bg-blue-100 text-blue-700"
+              title={`${newCount} new since last fetch`}
+            >
+              +{newCount}
+            </span>
+          )}
+        </h2>
+        <div className="flex items-center gap-3" onClick={(e) => e.stopPropagation()}>
           {headerExtra}
-          <span className="text-xs text-zinc-500">{totalCount}</span>
+          <span className="text-xs text-gh-fg-muted bg-gh-canvas rounded-full px-2 py-0.5 font-medium">{totalCount}</span>
         </div>
       </div>
-      {totalCount === 0 ? (
-        <div className="px-4 py-3 text-xs text-zinc-500">nothing here</div>
+      {folded ? null : totalCount === 0 ? (
+        <div className="px-5 py-4 text-sm text-gh-fg-muted">nothing here</div>
       ) : (
         <>
-          <ColumnHeader />
+          <ColumnHeader showAuthor={showAuthor} />
           <ul>
             {groups
               ? groups.map((g) => (
                   <Fragment key={g.label}>
-                    <li className="px-4 py-1.5 bg-zinc-50 text-xs font-medium text-sky-700 border-t border-zinc-100">
+                    <li className="px-5 py-2 bg-gh-canvas text-xs font-medium text-blue-600 border-t border-gh-border-muted border-l-2 border-l-blue-400">
                       @{g.label}{" "}
-                      <span className="text-zinc-400 font-normal">
+                      <span className="text-gh-fg-muted font-normal">
                         ({g.prs.length})
                       </span>
                     </li>
@@ -372,12 +432,19 @@ function Section({
                         pr={pr}
                         viewer={viewer}
                         onOpen={onOpen}
+                        showAuthor={showAuthor}
                       />
                     ))}
                   </Fragment>
                 ))
               : (prs ?? []).map((pr) => (
-                  <Row key={pr.id} pr={pr} viewer={viewer} onOpen={onOpen} />
+                  <Row
+                    key={pr.id}
+                    pr={pr}
+                    viewer={viewer}
+                    onOpen={onOpen}
+                    showAuthor={showAuthor}
+                  />
                 ))}
           </ul>
         </>
@@ -390,17 +457,19 @@ function Row({
   pr,
   viewer,
   onOpen,
+  showAuthor = false,
 }: {
   pr: DashboardPr;
   viewer: string;
   onOpen: (pr: DashboardPr, viewer: string) => void;
+  showAuthor?: boolean;
 }) {
   return (
     <li
-      className={`flex items-start gap-3 px-4 py-2 border-t first:border-t-0 border-zinc-100 cursor-pointer ${
+      className={`flex items-start gap-3 px-5 py-3 border-t first:border-t-0 border-gh-border-muted cursor-pointer transition-colors ${
         pr.actionable
-          ? "bg-blue-50 hover:bg-blue-100"
-          : "hover:bg-zinc-50"
+          ? "bg-gh-accent-blue hover:bg-gh-accent-blue-hover"
+          : "hover:bg-gh-canvas"
       }`}
       onClick={(e) => {
         e.preventDefault();
@@ -441,16 +510,23 @@ function Row({
           <Pill variant="bg-zinc-200 text-zinc-700">closed</Pill>
         )}
       </div>
+      {showAuthor && (
+        <div className="shrink-0 w-28 overflow-hidden" title={pr.authorLogin ?? ""}>
+          <span className="text-xs text-gh-fg-muted block truncate">
+            {pr.authorLogin ?? "—"}
+          </span>
+        </div>
+      )}
       <div
         className="shrink-0 w-32 overflow-hidden"
         title={pr.repo}
       >
-        <span className="text-xs text-zinc-500 block truncate">
+        <span className="text-xs text-gh-fg-muted block truncate">
           {pr.repo.split("/")[1] ?? pr.repo}
         </span>
       </div>
-      <span className="text-xs text-zinc-400 shrink-0">#{pr.number}</span>
-      <span className="truncate flex-1 min-w-0">{pr.title}</span>
+      <span className="text-xs text-gh-fg-muted shrink-0">#{pr.number}</span>
+      <span className="truncate flex-1 min-w-0 text-gh-fg">{pr.title}</span>
       <div className="shrink-0 w-40 flex flex-col items-end gap-1">
         {pr.pendingReview && (
           <Pill
@@ -475,12 +551,12 @@ function Row({
         )}
       </div>
       <span
-        className="text-xs text-zinc-500 shrink-0 w-10 text-right tabular-nums"
+        className="text-xs text-gh-fg-muted shrink-0 w-10 text-right tabular-nums"
         title={`opened ${new Date(pr.createdAt).toLocaleString()}`}
       >
-        {daysOpen(pr.createdAt, pr.closedAt)}d
+        {daysOpen(pr.createdAt, pr.closedAt)}
       </span>
-      <span className="text-xs text-zinc-500 shrink-0 w-16 text-right">
+      <span className="text-xs text-gh-fg-muted shrink-0 w-16 text-right">
         {formatRelative(new Date(pr.updatedAt).getTime())}
       </span>
     </li>
@@ -539,15 +615,16 @@ function AwaitingTabs({
 }) {
   const label: Record<AwaitingTab, string> = { individual: viewer, team: "team" };
   return (
-    <div className="inline-flex text-xs rounded border border-zinc-300 overflow-hidden">
+    <div className="inline-flex text-xs rounded-lg border border-gh-border overflow-hidden bg-gh-surface shadow-sm">
       {(["individual", "team"] as const).map((t) => (
         <button
           key={t}
-          onClick={() => onChange(t)}
-          className={`px-2 py-1 ${
-            value === t
-              ? "bg-zinc-200"
-              : "hover:bg-zinc-100"
+          onClick={(e) => {
+            e.stopPropagation();
+            onChange(t);
+          }}
+          className={`px-3 py-1.5 transition-colors ${
+            value === t ? "bg-gh-canvas font-medium text-gh-fg" : "hover:bg-gh-canvas text-gh-fg-muted"
           }`}
         >
           {label[t]} ({counts[t]})
@@ -557,17 +634,19 @@ function AwaitingTabs({
   );
 }
 
-function ColumnHeader() {
-  const lbl = "text-[10px] uppercase tracking-wide text-zinc-400 shrink-0";
+function ColumnHeader({ showAuthor = false }: { showAuthor?: boolean }) {
+  const lbl = "text-[11px] font-medium text-gh-fg-muted shrink-0";
   return (
-    <div className="flex items-center gap-3 px-4 py-1 border-b border-zinc-100 bg-zinc-50/60">
-      <span className={`${lbl} w-28`}>status</span>
-      <span className={`${lbl} w-32`}>repo</span>
-      <span className={`${lbl} flex-1 min-w-0`}>title</span>
-      <span className={`${lbl} w-40 text-right`}>reviewers</span>
-      <span className={`${lbl} w-20 text-right`}>jira</span>
-      <span className={`${lbl} w-10 text-right`}>open</span>
-      <span className={`${lbl} w-16 text-right`}>updated</span>
+    <div className="flex items-center gap-3 px-5 py-2 border-b border-gh-border-muted bg-gh-header-bg">
+      <span className={`${lbl} w-28`}>Status</span>
+      {showAuthor && <span className={`${lbl} w-28`}>Author</span>}
+      <span className={`${lbl} w-32`}>Repo</span>
+      <span className={`${lbl} shrink-0`}>#</span>
+      <span className={`${lbl} flex-1 min-w-0`}>Title</span>
+      <span className={`${lbl} w-40 text-right`}>Reviewers</span>
+      <span className={`${lbl} w-20 text-right`}>Jira</span>
+      <span className={`${lbl} w-10 text-right`}>Open</span>
+      <span className={`${lbl} w-16 text-right`}>Updated</span>
     </div>
   );
 }
@@ -652,10 +731,10 @@ function CiBadge({ state }: { state: CiState }) {
   );
 }
 
-function daysOpen(createdAt: string, closedAt: string | null): number {
+function daysOpen(createdAt: string, closedAt: string | null): string {
   const end = closedAt ? new Date(closedAt).getTime() : Date.now();
-  const ms = end - new Date(createdAt).getTime();
-  return Math.max(0, Math.floor(ms / (24 * 60 * 60 * 1000)));
+  const days = Math.max(0, Math.floor((end - new Date(createdAt).getTime()) / (24 * 60 * 60 * 1000)));
+  return days === 0 ? "today" : `${days}d`;
 }
 
 function formatRelative(ts: number): string {

@@ -118,7 +118,7 @@ export async function buildDashboard(): Promise<DashboardResponse> {
     const seenAfterClose = mergedSeen.get(pr.id);
     if (seenAfterClose !== undefined && now - seenAfterClose >= MERGED_HIDE_AFTER_MS) continue;
     const row = seen.get(pr.id);
-    sections.merged.push(makeRow(pr, row, !row, pr.mergedAt ? "merged" : "closed", checkpoint.get(pr.id), checkpointInitialized));
+    sections.merged.push(makeRow(pr, row, !row, pr.mergedAt ? "merged" : "closed", checkpoint.get(pr.id)?.updatedAt, checkpointInitialized));
   }
 
   for (const raw of fetched.openMine) {
@@ -126,7 +126,7 @@ export async function buildDashboard(): Promise<DashboardResponse> {
     const row = seen.get(pr.id);
     const actionable = classifyActionable(pr, viewer, row, false);
     const mergeColumnState = pr.isInMergeQueue ? "queued" : null;
-    const item = makeRow(pr, row, actionable, mergeColumnState, checkpoint.get(pr.id), checkpointInitialized);
+    const item = makeRow(pr, row, actionable, mergeColumnState, checkpoint.get(pr.id)?.updatedAt, checkpointInitialized);
     if (pr.isInMergeQueue) sections.merged.push(item);
     else sections.openMine.push(item);
   }
@@ -138,16 +138,18 @@ export async function buildDashboard(): Promise<DashboardResponse> {
     if (now - new Date(pr.updatedAt).getTime() > STALE_HIDE_AFTER_MS) continue;
     const row = seen.get(pr.id);
     sections.awaitingMyReview.push(
-      makeRow(pr, row, classifyActionable(pr, viewer, row, true), null, checkpoint.get(pr.id), checkpointInitialized),
+      makeRow(pr, row, classifyActionable(pr, viewer, row, true), null, checkpoint.get(pr.id)?.updatedAt, checkpointInitialized),
     );
   }
 
   // Sort each section in place; in the same pass, accumulate the snapshot
-  // (id → updatedAt) and count distinct PRs that changed since checkpoint.
+  // (id → updatedAt, section), count distinct PRs that changed since checkpoint,
+  // and count PRs new-to-section vs the previous checkpoint.
   // Sections are mutually exclusive by construction (author can't review their
   // own PR; queued PRs go to merged only).
-  const snapshot: Array<{ id: string; updatedAt: string }> = [];
+  const snapshot: Array<{ id: string; updatedAt: string; section: string }> = [];
   let changedCount = 0;
+  const newCounts = { openMine: 0, merged: 0 };
   for (const key of Object.keys(sections) as SectionKey[]) {
     sections[key].sort((a, b) => {
       if (a.actionable !== b.actionable) return a.actionable ? -1 : 1;
@@ -164,11 +166,15 @@ export async function buildDashboard(): Promise<DashboardResponse> {
       return b.updatedAt.localeCompare(a.updatedAt);
     });
     for (const p of sections[key]) {
-      snapshot.push({ id: p.id, updatedAt: p.updatedAt });
+      snapshot.push({ id: p.id, updatedAt: p.updatedAt, section: key });
       if (p.changedSinceCheckpoint) changedCount++;
+      if (checkpointInitialized && !checkpoint.has(p.id)) {
+        if (key === "openMine") newCounts.openMine++;
+        else if (key === "merged") newCounts.merged++;
+      }
     }
   }
   replaceCheckpoint(snapshot);
 
-  return { viewer, fetchedAt: now, sections, changedCount };
+  return { viewer, fetchedAt: now, sections, changedCount, newCounts };
 }
